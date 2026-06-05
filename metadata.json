@@ -1,0 +1,6 @@
+{
+  "name": "Gnim AI",
+  "description": "Your Private AI assistant built for productivity, creativity, and clarity, featuring Thinking Mode, Web Search, and developer API integration.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
