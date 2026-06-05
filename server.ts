@@ -3,13 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-// Backup system-provided key BEFORE dotenv loads any custom .env overrides
-const SYSTEM_API_KEY = process.env.GEMINI_API_KEY;
-
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -17,257 +13,278 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
+// Vercel AI Gateway endpoint
+const AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
+
 // Increase request size to support file attachments base64 uploads
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// Server API Routes
-app.get("/api/health", (req, res) => {
-  res.json({ status: "healthy", timestamp: new Date().toISOString() });
-});
+// ---------------------------------------------------------------------------
+// Helper: call Vercel AI Gateway with a specific model
+// ---------------------------------------------------------------------------
+async function callGateway(
+  apiKey: string,
+  model: string,
+  messages: any[],
+  systemInstruction: string
+): Promise<{ text: string }> {
+  const allMessages = [
+    { role: "system", content: systemInstruction },
+    ...messages,
+  ];
 
-// Real Gemini Chat Proxy
-app.post("/api/chat", async (req, res): Promise<any> => {
-  try {
-    const { message, history = [], thinking, webSearch, files = [] } = req.body;
+  const response = await fetch(`${AI_GATEWAY_BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: allMessages,
+      max_tokens: 8192,
+    }),
+  });
 
-    let apiKey = process.env.GEMINI_API_KEY || SYSTEM_API_KEY;
-    if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "") {
-      apiKey = SYSTEM_API_KEY || "";
-    }
-    if (!apiKey) {
-      return res.status(500).json({ error: "No Gemini API key configured. Set GEMINI_API_KEY in your .env file." });
-    }
-
-    // Optimize TPM/tokens limit consumption by keeping only the last 15 messages of conversation
-    const maxHistoryCount = 15;
-    const recentHistory = history.slice(-maxHistoryCount);
-
-    // Map history to Google GenAI schema
-    const mappedHistory = recentHistory.map((chat: any) => {
-      const parts: any[] = [];
-      
-      // If previous message had files attached, we can include them
-      if (chat.files && chat.files.length > 0) {
-        for (const file of chat.files) {
-          if (file.base64) {
-            // strip mime type header if present in base64 string
-            const base64Data = file.base64.split(",")[1] || file.base64;
-            parts.push({
-              inlineData: {
-                data: base64Data,
-                mimeType: file.type,
-              },
-            });
-          }
-        }
-      }
-
-      parts.push({ text: chat.text });
-
-      return {
-        role: chat.sender === "user" ? "user" : "model",
-        parts,
-      };
+  if (!response.ok) {
+    const errBody = await response.text();
+    throw Object.assign(new Error(errBody || response.statusText), {
+      status: response.status,
     });
+  }
 
-    // Handle current user input message parts (with file attachments)
-    const currentParts: any[] = [];
-    if (files && files.length > 0) {
-      for (const file of files) {
-        if (file.base64) {
-          const base64Data = file.base64.split(",")[1] || file.base64;
-          currentParts.push({
-            inlineData: {
-              data: base64Data,
-              mimeType: file.type,
-            },
+  const data = (await response.json()) as any;
+  const text = data.choices?.[0]?.message?.content ?? "";
+  return { text };
+}
+
+// ---------------------------------------------------------------------------
+// Helper: map our chat history to OpenAI-compatible messages
+// ---------------------------------------------------------------------------
+function buildMessages(
+  history: any[],
+  currentMessage: string,
+  files: any[]
+): any[] {
+  const maxHistoryCount = 15;
+  const recentHistory = history.slice(-maxHistoryCount);
+
+  const messages: any[] = recentHistory.map((chat: any) => {
+    const contentParts: any[] = [];
+
+    // Include file attachments from history
+    if (chat.files && chat.files.length > 0) {
+      for (const file of chat.files) {
+        if (file.base64 && file.type?.startsWith("image/")) {
+          const base64Data = file.base64.includes(",")
+            ? file.base64
+            : `data:${file.type};base64,${file.base64}`;
+          contentParts.push({
+            type: "image_url",
+            image_url: { url: base64Data },
           });
         }
       }
     }
-    currentParts.push({ text: message });
 
-    // Combine history and current message
-    const contents = [
-      ...mappedHistory,
-      {
-        role: "user",
-        parts: currentParts,
-      },
-    ];
+    contentParts.push({ type: "text", text: chat.text || "" });
 
-    // Configure system instructions and tools
-    let systemInstruction = 
+    return {
+      role: chat.sender === "user" ? "user" : "assistant",
+      content: contentParts.length === 1 ? contentParts[0].text : contentParts,
+    };
+  });
+
+  // Build current user message
+  const currentParts: any[] = [];
+  if (files && files.length > 0) {
+    for (const file of files) {
+      if (file.base64 && file.type?.startsWith("image/")) {
+        const base64Data = file.base64.includes(",")
+          ? file.base64
+          : `data:${file.type};base64,${file.base64}`;
+        currentParts.push({
+          type: "image_url",
+          image_url: { url: base64Data },
+        });
+      }
+    }
+  }
+  currentParts.push({ type: "text", text: currentMessage });
+
+  messages.push({
+    role: "user",
+    content: currentParts.length === 1 ? currentParts[0].text : currentParts,
+  });
+
+  return messages;
+}
+
+// ---------------------------------------------------------------------------
+// Server API Routes
+// ---------------------------------------------------------------------------
+app.get("/api/health", (req, res) => {
+  res.json({ status: "healthy", timestamp: new Date().toISOString() });
+});
+
+// Vercel AI Gateway Chat Proxy
+app.post("/api/chat", async (req, res): Promise<any> => {
+  try {
+    const { message, history = [], thinking, files = [] } = req.body;
+
+    // Resolve API key — prefer AI_GATEWAY_API_KEY, fall back to GEMINI_API_KEY
+    const apiKey =
+      process.env.AI_GATEWAY_API_KEY ||
+      process.env.GEMINI_API_KEY ||
+      "";
+
+    if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "") {
+      return res.status(500).json({
+        error:
+          "No API key configured. Set AI_GATEWAY_API_KEY (from Vercel Dashboard → AI Gateway) in your .env file.",
+      });
+    }
+
+    // Build system instruction
+    let systemInstruction =
       "You are Gnim AI, a deep, thoughtful Private AI assistant built for productivity, creativity, and clarity. " +
       "Always respond in clear, elegant Markdown with structured headers, bullet points, checklists, and code formatting where appropriate.";
 
     if (thinking) {
-      systemInstruction += 
+      systemInstruction +=
         "\n\nCRITICAL CONTEXT: Thinking Mode is ACTIVE. Before you begin answering, you MUST perform deep reasoning. " +
         "Output your entire step-by-step thinking process inside a `<thinking>` tag (e.g. `<thinking>My logical steps and self-correction...</thinking>`) " +
         "as the absolute FIRST part of your response. Then write your refined, markdown-styled final answer immediately after the closing tag.";
     } else {
-      systemInstruction += "\n\nThinking Mode is INACTIVE. Answer the user prompt directly and do not output any `<thinking>` tags.";
+      systemInstruction +=
+        "\n\nThinking Mode is INACTIVE. Answer the user prompt directly and do not output any `<thinking>` tags.";
     }
 
-    const config: any = {
-      systemInstruction,
-    };
+    // Convert history + current message to OpenAI format
+    const messages = buildMessages(history, message, files);
 
-    // Support search grounding
-    if (webSearch) {
-      config.tools = [{ googleSearch: {} }];
-    }
+    // Fallback chain: try models in order
+    const modelChain = [
+      "google/gemini-2.5-flash",
+      "google/gemini-2.0-flash",
+      "google/gemini-2.0-flash-lite",
+    ];
 
-    // Helper wrapper to try content generation with specified credential and model
-    const generateWithParams = async (keyToUse: string, modelToUse: string) => {
-      const client = new GoogleGenAI({
-        apiKey: keyToUse,
-        httpOptions: {
-          headers: {
-            "User-Agent": "aistudio-build",
-          },
-        },
-      });
-      return await client.models.generateContent({
-        model: modelToUse,
-        contents,
-        config,
-      });
-    };
+    let result: { text: string } | null = null;
+    let lastError: any = null;
+    let usedModel = "";
 
-    let response: any;
-    let fallbackStatus = "";
+    for (const model of modelChain) {
+      try {
+        console.log(`Attempting model: ${model}`);
+        result = await callGateway(apiKey, model, messages, systemInstruction);
+        usedModel = model;
+        break;
+      } catch (err: any) {
+        console.warn(`Model ${model} failed:`, err.message || err);
+        lastError = err;
 
-    try {
-      // Step 1: Run standard query with the primary key and the default high quality model
-      response = await generateWithParams(apiKey, "gemini-2.5-flash");
-    } catch (primaryError: any) {
-      console.warn("Primary model query failed:", primaryError.message || primaryError);
-
-      // Step 2: Try falling back using the platform's standard higher-quota default key
-      if (SYSTEM_API_KEY && SYSTEM_API_KEY !== apiKey) {
-        try {
-          console.log("Attempting fallback with platform standard SYSTEM_API_KEY with gemini-2.5-flash...");
-          response = await generateWithParams(SYSTEM_API_KEY, "gemini-2.5-flash");
-          apiKey = SYSTEM_API_KEY;
-          fallbackStatus = "Self-Healed: Recovered with System developer credential.";
-        } catch (systemKeyError) {
-          console.warn("Fallback to system key also hit quota/error limits:", systemKeyError);
-        }
-      }
-
-      // Step 3: Try falling back to gemini-3.1-flash-lite on the custom key if still failed
-      if (!response) {
-        try {
-          console.log("Attempting fallback to light architecture model: gemini-2.0-flash-lite...");
-          response = await generateWithParams(apiKey, "gemini-2.0-flash-lite");
-          fallbackStatus = "Self-Healed: Recovered with gemini-2.0-flash-lite.";
-        } catch (liteError) {
-          console.warn("Light architecture query failed:", liteError);
-          
-          // Step 4: Try falling back to gemini-3.1-flash-lite with the platform standard key
-          if (SYSTEM_API_KEY && SYSTEM_API_KEY !== apiKey) {
-            try {
-              console.log("Attempting fallback using platform standard key with gemini-2.0-flash-lite...");
-              response = await generateWithParams(SYSTEM_API_KEY, "gemini-2.0-flash-lite");
-              apiKey = SYSTEM_API_KEY;
-              fallbackStatus = "Self-Healed: Recovered with System developer credential and gemini-2.0-flash-lite.";
-            } catch (liteSystemError) {
-              console.warn("Final fallback stage exhausted:", liteSystemError);
-            }
-          }
-        }
-      }
-
-      // If all fallbacks failed, propagate the error upwards
-      if (!response) {
-        throw primaryError;
+        // Don't retry on auth errors
+        if (err.status === 401 || err.status === 403) break;
       }
     }
 
-    const replyText = response.text || "";
-    
-    // Extract search grounding metadata if available
-    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const sources = groundingChunks.map((chunk: any) => ({
-      title: chunk.web?.title || chunk.web?.uri || "Web Source",
-      uri: chunk.web?.uri || "",
-    })).filter((s: any) => s.uri !== "");
-
-    if (fallbackStatus) {
-      console.log(`Fallback recovery status: ${fallbackStatus}`);
+    if (!result) {
+      throw lastError || new Error("All models in the fallback chain failed.");
     }
+
+    console.log(`Response served via: ${usedModel}`);
 
     return res.json({
-      text: replyText,
-      sources,
+      text: result.text,
+      sources: [], // Web search disabled — routed through Gateway
     });
-
   } catch (error: any) {
-    console.error("Gemini proxy error:", error);
+    console.error("Gateway proxy error:", error);
 
-    const isQuotaError = 
+    const isQuotaError =
       error.status === 429 ||
-      error.message?.includes("429") || 
-      error.message?.includes("Quota") ||
-      error.message?.includes("quota") ||
-      error.message?.includes("exhausted") ||
-      error.message?.includes("EXHAUSTED");
+      error.message?.includes("429") ||
+      error.message?.toLowerCase().includes("quota") ||
+      error.message?.toLowerCase().includes("exhausted") ||
+      error.message?.toLowerCase().includes("rate limit");
+
+    const isAuthError =
+      error.status === 401 ||
+      error.status === 403 ||
+      error.message?.includes("401") ||
+      error.message?.includes("403") ||
+      error.message?.toLowerCase().includes("unauthorized");
+
+    if (isAuthError) {
+      return res.status(200).json({
+        text: `🔑 **Authentication Failed**
+
+Your \`AI_GATEWAY_API_KEY\` is missing or invalid.
+
+### How to fix:
+1. Go to your [Vercel Dashboard → AI Gateway → API Keys](https://vercel.com/dashboard)
+2. Click **Create Key** and copy it
+3. Add it to your \`.env\` file:
+   \`\`\`
+   AI_GATEWAY_API_KEY=vgat_your_key_here
+   \`\`\`
+4. Restart the server with \`npm run dev\``,
+        sources: [],
+      });
+    }
 
     if (isQuotaError) {
-      // Instead of failing the entire response container, return a beautiful instructions bubble
       return res.status(200).json({
-        text: `⚠️ **API Quota Exhausted (Rate Limit / Credit Exhaustion)**
+        text: `⚠️ **Rate Limit / Quota Exhausted**
 
-The provided API key (configured custom secret or platform credential) has exceeded its current Google AI Studio free tier quota.
+The Vercel AI Gateway has hit a rate limit or quota for your account.
 
-### How to resolve this right now:
-1. **Remove any custom API key overrides (Recommended)**:
-   - Clear any custom keys in your application's settings or dotenv configuration file.
-   - Let the application fall back to the platform's default built-in AI Studio developer project credentials, which have higher quota limits.
-2. **Upgrade context limits**:
-   - Check your key status or upgrade your developer plan at the Google AI Studio Console (https://aistudio.google.com).
-3. **Wait a few minutes**:
-   - Standard free API keys reset periodically. Try sending your message again in 1–2 minutes.
+### How to resolve:
+1. Check your usage at the [Vercel AI Gateway Dashboard](https://vercel.com/dashboard)
+2. Wait a few minutes for the rate limit to reset
+3. Upgrade your Vercel plan for higher limits
 
 *Technical Detail: ${error.message || "RESOURCE_EXHAUSTED"}*`,
-        sources: []
+        sources: [],
       });
     }
 
     return res.status(500).json({
-      error: error.message || "An unexpected error occurred while communicating with Gnim AI."
+      error:
+        error.message ||
+        "An unexpected error occurred while communicating with Gnim AI.",
     });
   }
 });
 
+// ---------------------------------------------------------------------------
 // Setup Vite Dev server or production static serving
+// ---------------------------------------------------------------------------
 async function initServer() {
   if (process.env.NODE_ENV !== "production") {
-    // Development Mode
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-    console.log("Vite middleware mounted in development mode.");
+    console.log("✅ Vite middleware mounted in development mode.");
   } else {
-    // Production Mode
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
-    console.log("Serving static files from /dist in production mode.");
+    console.log("✅ Serving static files from /dist in production mode.");
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Gnim AI Server running at http://localhost:${PORT}`);
+    console.log(`\n🚀 Gnim AI running at http://localhost:${PORT}`);
+    console.log(`🌐 AI Gateway: ${AI_GATEWAY_BASE_URL}`);
   });
 }
 
 initServer().catch((err) => {
-  console.error("Failed to initialize Express server:", err);
+  console.error("Failed to initialize server:", err);
 });
