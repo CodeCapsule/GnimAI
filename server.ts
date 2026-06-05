@@ -6,83 +6,41 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { generateText } from "ai";
 import dotenv from "dotenv";
 
+// Load .env.local first (Vercel OIDC token), then fall back to .env
+dotenv.config({ path: ".env.local" });
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
-
-// Vercel AI Gateway endpoint
-const AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
 
 // Increase request size to support file attachments base64 uploads
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // ---------------------------------------------------------------------------
-// Helper: call Vercel AI Gateway with a specific model
+// Helper: map our chat history to AI SDK messages format
 // ---------------------------------------------------------------------------
-async function callGateway(
-  apiKey: string,
-  model: string,
-  messages: any[],
-  systemInstruction: string
-): Promise<{ text: string }> {
-  const allMessages = [
-    { role: "system", content: systemInstruction },
-    ...messages,
-  ];
-
-  const response = await fetch(`${AI_GATEWAY_BASE_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: allMessages,
-      max_tokens: 8192,
-    }),
-  });
-
-  if (!response.ok) {
-    const errBody = await response.text();
-    throw Object.assign(new Error(errBody || response.statusText), {
-      status: response.status,
-    });
-  }
-
-  const data = (await response.json()) as any;
-  const text = data.choices?.[0]?.message?.content ?? "";
-  return { text };
-}
-
-// ---------------------------------------------------------------------------
-// Helper: map our chat history to OpenAI-compatible messages
-// ---------------------------------------------------------------------------
-function buildMessages(
-  history: any[],
-  currentMessage: string,
-  files: any[]
-): any[] {
+function buildMessages(history: any[], currentMessage: string, files: any[]) {
   const maxHistoryCount = 15;
   const recentHistory = history.slice(-maxHistoryCount);
 
   const messages: any[] = recentHistory.map((chat: any) => {
     const contentParts: any[] = [];
 
-    // Include file attachments from history
+    // Include image attachments from history
     if (chat.files && chat.files.length > 0) {
       for (const file of chat.files) {
         if (file.base64 && file.type?.startsWith("image/")) {
           const base64Data = file.base64.includes(",")
-            ? file.base64
-            : `data:${file.type};base64,${file.base64}`;
+            ? file.base64.split(",")[1]
+            : file.base64;
           contentParts.push({
-            type: "image_url",
-            image_url: { url: base64Data },
+            type: "image",
+            image: base64Data,
+            mimeType: file.type,
           });
         }
       }
@@ -92,21 +50,22 @@ function buildMessages(
 
     return {
       role: chat.sender === "user" ? "user" : "assistant",
-      content: contentParts.length === 1 ? contentParts[0].text : contentParts,
+      content: contentParts.length === 1 ? chat.text || "" : contentParts,
     };
   });
 
-  // Build current user message
+  // Build current user message (with optional file attachments)
   const currentParts: any[] = [];
   if (files && files.length > 0) {
     for (const file of files) {
       if (file.base64 && file.type?.startsWith("image/")) {
         const base64Data = file.base64.includes(",")
-          ? file.base64
-          : `data:${file.type};base64,${file.base64}`;
+          ? file.base64.split(",")[1]
+          : file.base64;
         currentParts.push({
-          type: "image_url",
-          image_url: { url: base64Data },
+          type: "image",
+          image: base64Data,
+          mimeType: file.type,
         });
       }
     }
@@ -115,7 +74,7 @@ function buildMessages(
 
   messages.push({
     role: "user",
-    content: currentParts.length === 1 ? currentParts[0].text : currentParts,
+    content: currentParts.length === 1 ? currentMessage : currentParts,
   });
 
   return messages;
@@ -125,112 +84,116 @@ function buildMessages(
 // Server API Routes
 // ---------------------------------------------------------------------------
 app.get("/api/health", (req, res) => {
-  res.json({ status: "healthy", timestamp: new Date().toISOString() });
+  res.json({
+    status: "healthy",
+    gateway: "Vercel AI Gateway",
+    timestamp: new Date().toISOString(),
+  });
 });
 
-// Vercel AI Gateway Chat Proxy
+// Vercel AI Gateway Chat Proxy (using Vercel AI SDK)
 app.post("/api/chat", async (req, res): Promise<any> => {
   try {
     const { message, history = [], thinking, files = [] } = req.body;
 
-    // Resolve API key — prefer AI_GATEWAY_API_KEY, fall back to GEMINI_API_KEY
-    const apiKey =
-      process.env.AI_GATEWAY_API_KEY ||
-      process.env.GEMINI_API_KEY ||
-      "";
-
-    if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "") {
-      return res.status(500).json({
-        error:
-          "No API key configured. Set AI_GATEWAY_API_KEY (from Vercel Dashboard → AI Gateway) in your .env file.",
-      });
-    }
-
     // Build system instruction
-    let systemInstruction =
+    let systemPrompt =
       "You are Gnim AI, a deep, thoughtful Private AI assistant built for productivity, creativity, and clarity. " +
       "Always respond in clear, elegant Markdown with structured headers, bullet points, checklists, and code formatting where appropriate.";
 
     if (thinking) {
-      systemInstruction +=
+      systemPrompt +=
         "\n\nCRITICAL CONTEXT: Thinking Mode is ACTIVE. Before you begin answering, you MUST perform deep reasoning. " +
-        "Output your entire step-by-step thinking process inside a `<thinking>` tag (e.g. `<thinking>My logical steps and self-correction...</thinking>`) " +
+        "Output your entire step-by-step thinking process inside a `<thinking>` tag " +
+        "(e.g. `<thinking>My logical steps and self-correction...</thinking>`) " +
         "as the absolute FIRST part of your response. Then write your refined, markdown-styled final answer immediately after the closing tag.";
     } else {
-      systemInstruction +=
+      systemPrompt +=
         "\n\nThinking Mode is INACTIVE. Answer the user prompt directly and do not output any `<thinking>` tags.";
     }
 
-    // Convert history + current message to OpenAI format
+    // Build conversation messages
     const messages = buildMessages(history, message, files);
 
-    // Fallback chain: try models in order
+    // Fallback chain — Vercel AI Gateway automatically handles auth via OIDC on Vercel
+    // Locally, it uses AI_GATEWAY_API_KEY from .env.local or .env
     const modelChain = [
       "google/gemini-2.5-flash",
       "google/gemini-2.0-flash",
       "google/gemini-2.0-flash-lite",
     ];
 
-    let result: { text: string } | null = null;
+    let resultText = "";
     let lastError: any = null;
     let usedModel = "";
 
     for (const model of modelChain) {
       try {
-        console.log(`Attempting model: ${model}`);
-        result = await callGateway(apiKey, model, messages, systemInstruction);
+        console.log(`[Gateway] Trying model: ${model}`);
+
+        const result = await generateText({
+          model: model as any,
+          system: systemPrompt,
+          messages,
+          maxTokens: 8192,
+        });
+
+        resultText = result.text ?? "";
         usedModel = model;
         break;
       } catch (err: any) {
-        console.warn(`Model ${model} failed:`, err.message || err);
+        console.warn(`[Gateway] Model ${model} failed:`, err.message || err);
         lastError = err;
 
-        // Don't retry on auth errors
-        if (err.status === 401 || err.status === 403) break;
+        // Stop retrying on auth errors
+        if (
+          err.message?.includes("401") ||
+          err.message?.includes("403") ||
+          err.message?.toLowerCase().includes("unauthorized")
+        ) {
+          break;
+        }
       }
     }
 
-    if (!result) {
+    if (!usedModel) {
       throw lastError || new Error("All models in the fallback chain failed.");
     }
 
-    console.log(`Response served via: ${usedModel}`);
+    console.log(`[Gateway] Response served via: ${usedModel}`);
 
     return res.json({
-      text: result.text,
-      sources: [], // Web search disabled — routed through Gateway
+      text: resultText,
+      sources: [],
     });
   } catch (error: any) {
-    console.error("Gateway proxy error:", error);
+    console.error("[Gateway] Error:", error);
 
     const isQuotaError =
-      error.status === 429 ||
       error.message?.includes("429") ||
       error.message?.toLowerCase().includes("quota") ||
       error.message?.toLowerCase().includes("exhausted") ||
       error.message?.toLowerCase().includes("rate limit");
 
     const isAuthError =
-      error.status === 401 ||
-      error.status === 403 ||
       error.message?.includes("401") ||
       error.message?.includes("403") ||
-      error.message?.toLowerCase().includes("unauthorized");
+      error.message?.toLowerCase().includes("unauthorized") ||
+      error.message?.toLowerCase().includes("oidc");
 
     if (isAuthError) {
       return res.status(200).json({
-        text: `🔑 **Authentication Failed**
+        text: `🔑 **Authentication Failed — Vercel AI Gateway**
 
-Your \`AI_GATEWAY_API_KEY\` is missing or invalid.
+Your project is not linked to Vercel or is missing OIDC credentials.
 
 ### How to fix:
-1. Go to your [Vercel Dashboard → AI Gateway → API Keys](https://vercel.com/dashboard)
-2. Click **Create Key** and copy it
-3. Add it to your \`.env\` file:
-   \`\`\`
-   AI_GATEWAY_API_KEY=vgat_your_key_here
-   \`\`\`
-4. Restart the server with \`npm run dev\``,
+1. Install Vercel CLI: \`npm install -g vercel\`
+2. Link your project: \`vercel link\`
+3. Pull credentials: \`vercel env pull .env.local\`
+4. Restart the server: \`npm run dev\`
+
+Or set \`AI_GATEWAY_API_KEY\` in your \`.env\` file from the [Vercel Dashboard → AI Gateway](https://vercel.com/dashboard).`,
         sources: [],
       });
     }
@@ -239,11 +202,11 @@ Your \`AI_GATEWAY_API_KEY\` is missing or invalid.
       return res.status(200).json({
         text: `⚠️ **Rate Limit / Quota Exhausted**
 
-The Vercel AI Gateway has hit a rate limit or quota for your account.
+The Vercel AI Gateway has hit a quota limit.
 
 ### How to resolve:
-1. Check your usage at the [Vercel AI Gateway Dashboard](https://vercel.com/dashboard)
-2. Wait a few minutes for the rate limit to reset
+1. Check usage at [Vercel Dashboard → AI Gateway](https://vercel.com/dashboard)
+2. Wait a few minutes and try again
 3. Upgrade your Vercel plan for higher limits
 
 *Technical Detail: ${error.message || "RESOURCE_EXHAUSTED"}*`,
@@ -281,7 +244,7 @@ async function initServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`\n🚀 Gnim AI running at http://localhost:${PORT}`);
-    console.log(`🌐 AI Gateway: ${AI_GATEWAY_BASE_URL}`);
+    console.log(`🌐 Powered by Vercel AI Gateway`);
   });
 }
 
