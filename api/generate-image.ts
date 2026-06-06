@@ -1,4 +1,4 @@
-import { gateway, generateImage, getRequestBody, sendJson } from "./_gateway";
+import { gateway, generateImage, getRequestBody, sendJson } from "./_gateway.js";
 
 export const config = {
   maxDuration: 60,

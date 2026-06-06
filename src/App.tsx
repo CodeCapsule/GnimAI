@@ -47,7 +47,7 @@ export default function App() {
   const [apiExpanded, setApiExpanded] = useState(false);
 
   // Settings popup modal visibility
-  const [settingsOpen, setSettingsOpen] = useState(true); // Open About settings tab by default to replicate image
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"about" | "apiKey" | "docs" | "support" | "preferences">("about");
 
   // User Settings (Gnim secret key and Base URL endpoints)
@@ -143,6 +143,20 @@ export default function App() {
   // Active Session helper
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
 
+  const readApiResponse = async (response: Response) => {
+    const raw = await response.text();
+    if (!raw.trim()) return {};
+
+    try {
+      return JSON.parse(raw);
+    } catch {
+      const preview = raw.replace(/\s+/g, " ").slice(0, 220);
+      throw new Error(
+        `The server returned a non-JSON response (${response.status}). ${preview}`
+      );
+    }
+  };
+
   const loadSuggestions = async (history: ChatMessage[]) => {
     try {
       const response = await fetch("/api/suggestions", {
@@ -154,7 +168,7 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
       if (Array.isArray(data.suggestions) && data.suggestions.length > 0) {
         setSuggestions(data.suggestions.slice(0, 4));
       }
@@ -262,7 +276,7 @@ export default function App() {
             model: settings.imageModel || "google/imagen-4.0-fast-generate-001" 
           }),
         });
-        const data = await response.json();
+        const data = await readApiResponse(response);
         setIsLoading(false);
         if (!response.ok || data.error) throw new Error(data.error || "Image generation failed.");
         const aiResponse: ChatMessage = {
@@ -296,7 +310,7 @@ export default function App() {
             model: settings.videoModel || "google/veo-3.1-fast-generate-001" 
           }),
         });
-        const data = await response.json();
+        const data = await readApiResponse(response);
         setIsLoading(false);
         if (!response.ok || data.error) throw new Error(data.error || "Video generation failed.");
         const aiResponse: ChatMessage = {
@@ -336,7 +350,7 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
 
       setIsLoading(false);
 
@@ -387,7 +401,7 @@ export default function App() {
       const errorMsg: ChatMessage = {
         id: "err-" + Date.now(),
         sender: "ai",
-        text: `⚠️ **Interaction Failed**\n\n${err.message || "An unexpected error occurred."}\n\n*Please ensure that your Gemini API Key is configured. You can add it in the Secrets manager.*`,
+        text: `⚠️ **Interaction Failed**\n\n${err.message || "An unexpected error occurred."}\n\n*The request reached your Vercel Function, but the API returned an error. Check Vercel Function Logs if this continues.*`,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         error: true,
       };
@@ -407,7 +421,7 @@ export default function App() {
   };
 
   return (
-    <div className={`w-screen h-screen flex relative overflow-hidden font-sans ${isDarkMode ? "bg-[#111214] text-white" : "bg-[#fcfdfe] text-gray-800"}`}>
+    <div className={`w-screen h-screen flex relative overflow-hidden font-sans app-shell ${isDarkMode ? "text-white" : "text-gray-800"}`}>
       
       {/* Mobile Sidebar overlay backdrop */}
       {sidebarOpen && (
