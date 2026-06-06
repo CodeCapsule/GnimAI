@@ -1,9 +1,11 @@
-import { sendJson } from "./_gateway";
+export const runtime = "nodejs";
 
-export default async function handler(req: any, res: any) {
-  if (req.method !== "GET") return sendJson(res, 405, { error: "Method not allowed" });
+export default function handler(req: any, res: any) {
+  if (req.method !== "GET") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
-  return sendJson(res, 200, {
+  return res.status(200).json({
     status: "healthy",
     runtime: "vercel-function",
     gateway: "Vercel AI Gateway",

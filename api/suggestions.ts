@@ -1,4 +1,4 @@
-import { getRequestBody, parseSuggestions, runGatewayTextGeneration, sendJson } from "./_gateway";
+import { getRequestBody, parseSuggestions, runGatewayTextGeneration, sendJson } from "./_gateway.js";
 
 export const config = {
   maxDuration: 30,

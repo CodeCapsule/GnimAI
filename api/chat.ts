@@ -1,4 +1,4 @@
-import { buildMessages, formatGatewayError, getRequestBody, runGatewayTextGeneration, sendJson } from "./_gateway";
+import { buildMessages, formatGatewayError, getRequestBody, runGatewayTextGeneration, sendJson } from "./_gateway.js";
 
 export const config = {
   maxDuration: 60,
