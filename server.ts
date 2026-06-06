@@ -218,17 +218,34 @@ The Vercel AI Gateway has hit a quota limit.
       });
     }
 
-    return res.status(500).json({
-      error:
-        error.message ||
-        "An unexpected error occurred while communicating with Gnim AI.",
-    });
+    // Safe fallback — always return JSON, never let Vite return HTML
+    if (!res.headersSent) {
+      return res.status(500).json({
+        text: `⚠️ **Something went wrong**
+
+${error.message || "An unexpected error occurred. Please try again."}
+
+*If this keeps happening, restart the server with \`npm run dev\`.*`,
+        sources: [],
+      });
+    }
   }
 });
 
 // ---------------------------------------------------------------------------
-// Setup Vite Dev server or production static serving
+// Global Express error handler — ensures API errors always return JSON
+// and never fall through to Vite's HTML error page
 // ---------------------------------------------------------------------------
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error("[Express] Unhandled error:", err);
+  if (!res.headersSent) {
+    res.status(500).json({
+      text: `⚠️ **Server Error**\n\n${err.message || "An unexpected error occurred."}`,
+      sources: [],
+    });
+  }
+});
+
 async function initServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
