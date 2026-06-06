@@ -6,6 +6,8 @@
 import React from "react";
 import { X, ShieldCheck, HelpCircle, Code, Info, Key, Check, Copy, Sliders, Type } from "lucide-react";
 import SadeSDKPlayground from "./SadeSDKPlayground";
+import { GatewayModelsState } from "../types";
+import { labelForModel } from "../modelCatalog";
 
 interface SadeSettingsModalProps {
   isOpen: boolean;
@@ -22,6 +24,7 @@ interface SadeSettingsModalProps {
   setImageModel: (model: string) => void;
   videoModel: string;
   setVideoModel: (model: string) => void;
+  gatewayModels: GatewayModelsState;
 }
 
 export default function SadeSettingsModal({
@@ -39,6 +42,7 @@ export default function SadeSettingsModal({
   setImageModel,
   videoModel,
   setVideoModel,
+  gatewayModels,
 }: SadeSettingsModalProps) {
   const [copied, setCopied] = React.useState(false);
 
@@ -334,13 +338,9 @@ export default function SadeSettingsModal({
                   onChange={(e) => setChatModel(e.target.value)}
                   className="w-full bg-[#121519] border border-[#1e232b] text-xs rounded-xl px-3 py-2 text-gray-300 outline-none focus:border-orange-500/50 cursor-pointer"
                 >
-                  <option value="google/gemini-2.5-flash">Google Gemini 2.5 Flash</option>
-                  <option value="google/gemini-2.5-pro">Google Gemini 2.5 Pro</option>
-                  <option value="google/gemini-2.0-flash">Google Gemini 2.0 Flash</option>
-                  <option value="anthropic/claude-3-5-sonnet">Anthropic Claude 3.5 Sonnet</option>
-                  <option value="anthropic/claude-3-5-haiku">Anthropic Claude 3.5 Haiku</option>
-                  <option value="openai/gpt-4o">OpenAI GPT-4o</option>
-                  <option value="openai/gpt-4o-mini">OpenAI GPT-4o Mini</option>
+                  {gatewayModels.text.map((model) => (
+                    <option key={model.id} value={model.id}>{labelForModel(model)}</option>
+                  ))}
                 </select>
               </div>
 
@@ -354,15 +354,9 @@ export default function SadeSettingsModal({
                   onChange={(e) => setImageModel(e.target.value)}
                   className="w-full bg-[#121519] border border-[#1e232b] text-xs rounded-xl px-3 py-2 text-gray-300 outline-none focus:border-orange-500/50 cursor-pointer"
                 >
-                  <option value="google/imagen-4.0-fast-generate-001">Google Imagen 4.0 Fast</option>
-                  <option value="google/imagen-4.0-generate-001">Google Imagen 4.0 Pro</option>
-                  <option value="google/imagen-3.0-generate-002">Google Imagen 3.0 Pro</option>
-                  <option value="openai/gpt-image-2">OpenAI DALL-E 3</option>
-                  <option value="openai/gpt-image-1">OpenAI DALL-E 2</option>
-                  <option value="bfl/flux-2-flex">FLUX.1 Schnell</option>
-                  <option value="stability/stable-diffusion-3.5-large">SD 3.5 Large</option>
-                  <option value="bytedance/seedream-4.0">ByteDance Seedream 4.0</option>
-                  <option value="bytedance/seedream-4.5">ByteDance Seedream 4.5</option>
+                  {gatewayModels.image.map((model) => (
+                    <option key={model.id} value={model.id}>{labelForModel(model)}</option>
+                  ))}
                 </select>
               </div>
 
@@ -376,10 +370,9 @@ export default function SadeSettingsModal({
                   onChange={(e) => setVideoModel(e.target.value)}
                   className="w-full bg-[#121519] border border-[#1e232b] text-xs rounded-xl px-3 py-2 text-gray-300 outline-none focus:border-orange-500/50 cursor-pointer"
                 >
-                  <option value="google/veo-3.1-fast-generate-001">Google Veo 3.1 Fast</option>
-                  <option value="google/veo-2.0-generate-001">Google Veo 2.0 Pro</option>
-                  <option value="luma/ray-2">Luma Ray 2</option>
-                  <option value="bytedance/seedance-2.0">ByteDance Seedance 2.0</option>
+                  {gatewayModels.video.map((model) => (
+                    <option key={model.id} value={model.id}>{labelForModel(model)}</option>
+                  ))}
                 </select>
               </div>
 

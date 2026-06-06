@@ -4,8 +4,9 @@
  */
 
 import React from "react";
-import { Plus, Trash2, Settings, X, MessageSquare } from "lucide-react";
-import { ChatSession } from "../types";
+import { Plus, Trash2, Settings, X, MessageSquare, Brain, ImageIcon, Video, Sparkles } from "lucide-react";
+import { ActiveModes, ChatSession, GatewayModelsState } from "../types";
+import { labelForModel } from "../modelCatalog";
 
 interface SadeAISidebarProps {
   sessions: ChatSession[];
@@ -16,6 +17,15 @@ interface SadeAISidebarProps {
   openSettings: () => void;
   sidebarOpen: boolean;
   setSidebarOpen: (value: boolean) => void;
+  activeModes: ActiveModes;
+  setActiveModes: React.Dispatch<React.SetStateAction<ActiveModes>>;
+  chatModel: string;
+  setChatModel: (model: string) => void;
+  imageModel: string;
+  setImageModel: (model: string) => void;
+  videoModel: string;
+  setVideoModel: (model: string) => void;
+  gatewayModels: GatewayModelsState;
 }
 
 export default function SadeAISidebar({
@@ -27,7 +37,51 @@ export default function SadeAISidebar({
   openSettings,
   sidebarOpen,
   setSidebarOpen,
+  activeModes,
+  setActiveModes,
+  chatModel,
+  setChatModel,
+  imageModel,
+  setImageModel,
+  videoModel,
+  setVideoModel,
+  gatewayModels,
 }: SadeAISidebarProps) {
+  const modeCards = [
+    {
+      key: "thinking" as const,
+      label: "Ask Question",
+      hint: "Chat + reasoning",
+      icon: Brain,
+      active: !activeModes.imageGen && !activeModes.videoGen,
+      onClick: () => setActiveModes(prev => ({ ...prev, imageGen: false, videoGen: false, thinking: !prev.thinking })),
+      accent: "purple",
+    },
+    {
+      key: "image" as const,
+      label: "Image Generation",
+      hint: "Create artwork",
+      icon: ImageIcon,
+      active: activeModes.imageGen,
+      onClick: () => setActiveModes(prev => ({ ...prev, imageGen: !prev.imageGen, videoGen: false })),
+      accent: "pink",
+    },
+    {
+      key: "video" as const,
+      label: "Video Generation",
+      hint: "Animate / clips",
+      icon: Video,
+      active: activeModes.videoGen,
+      onClick: () => setActiveModes(prev => ({ ...prev, videoGen: !prev.videoGen, imageGen: false })),
+      accent: "cyan",
+    },
+  ];
+
+  const currentMode = activeModes.videoGen ? "video" : activeModes.imageGen ? "image" : "text";
+  const currentModel = currentMode === "video" ? videoModel : currentMode === "image" ? imageModel : chatModel;
+  const setCurrentModel = currentMode === "video" ? setVideoModel : currentMode === "image" ? setImageModel : setChatModel;
+  const currentOptions = gatewayModels[currentMode] || [];
+
   return (
     <aside
       id="gnim-sidebar"
@@ -81,6 +135,61 @@ export default function SadeAISidebar({
           <Plus className="w-4.5 h-4.5 text-gray-305 group-hover:scale-110 transition-transform" />
           <span>New chat</span>
         </button>
+
+        {/* System Mode Selector */}
+        <div className="mt-5 rounded-2xl border border-[#222428] bg-[#0b0c0f]/70 p-3 shadow-[0_10px_30px_rgba(0,0,0,0.20)]">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-orange-400" />
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">System Mode</span>
+            </div>
+            <span className="text-[9px] text-emerald-400 font-mono">Gateway</span>
+          </div>
+
+          <div className="space-y-2">
+            {modeCards.map((mode) => {
+              const Icon = mode.icon;
+              return (
+                <button
+                  key={mode.key}
+                  onClick={mode.onClick}
+                  className={`w-full flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-all cursor-pointer ${
+                    mode.active
+                      ? "bg-orange-500/10 border-orange-500/35 text-white shadow-[0_0_18px_rgba(249,115,22,0.12)]"
+                      : "bg-white/[0.025] border-white/5 text-gray-400 hover:bg-white/[0.045] hover:text-gray-200"
+                  }`}
+                  title={`Switch to ${mode.label}`}
+                >
+                  <span className={`w-8 h-8 rounded-lg flex items-center justify-center border ${mode.active ? "bg-orange-500/15 border-orange-500/30 text-orange-300" : "bg-black/20 border-white/5 text-gray-500"}`}>
+                    <Icon className="w-4 h-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] font-semibold truncate">{mode.label}</span>
+                    <span className="block text-[10px] text-gray-500 truncate">{mode.hint}</span>
+                  </span>
+                  {mode.active && <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-3 space-y-1.5">
+            <label className="text-[9px] uppercase tracking-wider text-gray-500 font-semibold">
+              {currentMode === "image" ? "Image Model" : currentMode === "video" ? "Video Model" : "Chat Model"}
+            </label>
+            <select
+              value={currentModel}
+              onChange={(e) => setCurrentModel(e.target.value)}
+              className="w-full bg-[#121519] border border-[#1e232b] text-[10.5px] rounded-xl px-2.5 py-2 text-gray-300 outline-none focus:border-orange-500/50 cursor-pointer"
+            >
+              {currentOptions.map((model) => (
+                <option key={model.id} value={model.id} className="bg-[#0d0f12] text-gray-200">
+                  {labelForModel(model)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
         {/* Recent Chats Heading Label */}
         <div className="mt-5 px-1.5 text-[10.5px] font-bold text-gray-500 uppercase tracking-wider select-none">

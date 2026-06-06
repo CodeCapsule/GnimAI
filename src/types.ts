@@ -44,6 +44,19 @@ export interface ActiveModes {
   videoGen: boolean;
 }
 
+export interface GatewayModelOption {
+  id: string;
+  name?: string;
+  provider?: string;
+  capabilities?: string[];
+}
+
+export interface GatewayModelsState {
+  text: GatewayModelOption[];
+  image: GatewayModelOption[];
+  video: GatewayModelOption[];
+}
+
 export interface UserSettings {
   aboutTab: "about" | "apiKey" | "docs" | "support" | "preferences";
   apiKey: string;

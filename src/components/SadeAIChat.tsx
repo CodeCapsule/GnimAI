@@ -7,7 +7,8 @@ import React, { useRef, useState } from "react";
 import { 
   Plus, Settings, Send, Paperclip, X, Brain, Globe, FileText, Check, AlertCircle, Sparkles, HelpCircle, Menu, Terminal, Zap, ArrowUp, Lightbulb, Search, Puzzle, ArrowRight, Mic, MicOff, ImageIcon, Video, Download, Clapperboard
 } from "lucide-react";
-import { ChatSession, ChatMessage, AttachmentFile, ActiveModes } from "../types";
+import { ChatSession, ChatMessage, AttachmentFile, ActiveModes, GatewayModelsState } from "../types";
+import { labelForModel } from "../modelCatalog";
 
 interface SadeAIChatProps {
   session: ChatSession;
@@ -29,6 +30,7 @@ interface SadeAIChatProps {
   videoModel: string;
   setVideoModel: (model: string) => void;
   suggestions?: string[];
+  gatewayModels: GatewayModelsState;
 }
 
 export default function SadeAIChat({
@@ -51,6 +53,7 @@ export default function SadeAIChat({
   videoModel,
   setVideoModel,
   suggestions = [],
+  gatewayModels,
 }: SadeAIChatProps) {
   const [inputText, setInputText] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<AttachmentFile[]>([]);
@@ -356,15 +359,13 @@ export default function SadeAIChat({
             <select
               value={chatModel}
               onChange={(e) => setChatModel(e.target.value)}
-              className="bg-transparent border-0 text-[10.5px] text-gray-205 outline-none cursor-pointer p-0 pr-1 hover:text-white font-sans focus:ring-0 focus:outline-none"
+              className="bg-transparent border-0 text-[10.5px] text-gray-205 outline-none cursor-pointer p-0 pr-1 hover:text-white font-sans focus:ring-0 focus:outline-none max-w-[210px]"
             >
-              <option value="google/gemini-2.5-flash" className="bg-[#0d0f12] text-gray-200">Gemini 2.5 Flash</option>
-              <option value="google/gemini-2.5-pro" className="bg-[#0d0f12] text-gray-200">Gemini 2.5 Pro</option>
-              <option value="google/gemini-2.0-flash" className="bg-[#0d0f12] text-gray-200">Gemini 2.0 Flash</option>
-              <option value="anthropic/claude-3-5-sonnet" className="bg-[#0d0f12] text-gray-200">Claude 3.5 Sonnet</option>
-              <option value="anthropic/claude-3-5-haiku" className="bg-[#0d0f12] text-gray-200">Claude 3.5 Haiku</option>
-              <option value="openai/gpt-4o" className="bg-[#0d0f12] text-gray-200">GPT-4o</option>
-              <option value="openai/gpt-4o-mini" className="bg-[#0d0f12] text-gray-200">GPT-4o Mini</option>
+              {gatewayModels.text.map((model) => (
+                <option key={model.id} value={model.id} className="bg-[#0d0f12] text-gray-200">
+                  {labelForModel(model)}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -775,26 +776,9 @@ export default function SadeAIChat({
                 onChange={(e) => activeModes.imageGen ? setImageModel(e.target.value) : setVideoModel(e.target.value)}
                 className="bg-[#121519] border border-[#2d3035] text-[10.5px] text-gray-300 rounded-lg px-2.5 py-1 outline-none cursor-pointer focus:border-orange-500/30 font-sans"
               >
-                {activeModes.imageGen ? (
-                  <>
-                    <option value="google/imagen-4.0-fast-generate-001">Imagen 4.0 Fast (Google)</option>
-                    <option value="google/imagen-4.0-generate-001">Imagen 4.0 Pro (Google)</option>
-                    <option value="google/imagen-3.0-generate-002">Imagen 3.0 Pro (Google)</option>
-                    <option value="openai/gpt-image-2">DALL-E 3 (OpenAI)</option>
-                    <option value="openai/gpt-image-1">DALL-E 2 (OpenAI)</option>
-                    <option value="bfl/flux-2-flex">FLUX.1 Schnell (BFL)</option>
-                    <option value="stability/stable-diffusion-3.5-large">SD 3.5 Large (Stability)</option>
-                    <option value="bytedance/seedream-4.0">Seedream 4.0 (ByteDance)</option>
-                    <option value="bytedance/seedream-4.5">Seedream 4.5 (ByteDance)</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="google/veo-3.1-fast-generate-001">Veo 3.1 Fast (Google)</option>
-                    <option value="google/veo-2.0-generate-001">Veo 2.0 Pro (Google)</option>
-                    <option value="luma/ray-2">Ray 2 (Luma)</option>
-                    <option value="bytedance/seedance-2.0">Seedance 2.0 (ByteDance)</option>
-                  </>
-                )}
+                {(activeModes.imageGen ? gatewayModels.image : gatewayModels.video).map((model) => (
+                  <option key={model.id} value={model.id}>{labelForModel(model)}</option>
+                ))}
               </select>
             </div>
           )}

@@ -8,7 +8,8 @@ import SadeAISidebar from "./components/SadeAISidebar";
 import SadeAIChat from "./components/SadeAIChat";
 import SadeAPIDashboard from "./components/SadeAPIDashboard";
 import SadeSettingsModal from "./components/SadeSettingsModal";
-import { ChatSession, ChatMessage, AttachmentFile, ActiveModes, UserSettings } from "./types";
+import { ChatSession, ChatMessage, AttachmentFile, ActiveModes, UserSettings, GatewayModelsState } from "./types";
+import { FALLBACK_GATEWAY_MODELS } from "./modelCatalog";
 
 const LOCAL_STORAGE_SESSION_KEY = "gnim_ai_chat_sessions";
 const LOCAL_STORAGE_MODES_KEY = "gnim_ai_active_modes";
@@ -123,6 +124,31 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState<string>("default-session-id");
   const [isLoading, setIsLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_RECOMMENDATIONS);
+  const [gatewayModels, setGatewayModels] = useState<GatewayModelsState>(FALLBACK_GATEWAY_MODELS);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadGatewayModels() {
+      try {
+        const response = await fetch("/api/models");
+        const data = await response.json();
+        if (cancelled) return;
+
+        setGatewayModels({
+          text: Array.isArray(data.text) && data.text.length ? data.text : FALLBACK_GATEWAY_MODELS.text,
+          image: Array.isArray(data.image) && data.image.length ? data.image : FALLBACK_GATEWAY_MODELS.image,
+          video: Array.isArray(data.video) && data.video.length ? data.video : FALLBACK_GATEWAY_MODELS.video,
+        });
+      } catch (error) {
+        console.warn("Could not load Vercel AI Gateway model list:", error);
+        if (!cancelled) setGatewayModels(FALLBACK_GATEWAY_MODELS);
+      }
+    }
+
+    void loadGatewayModels();
+    return () => { cancelled = true; };
+  }, []);
 
 
   // Synchronize modes
@@ -441,6 +467,15 @@ export default function App() {
         openSettings={handleOpenSettings}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
+        activeModes={activeModes}
+        setActiveModes={setActiveModes}
+        chatModel={settings.chatModel || "google/gemini-2.5-flash"}
+        setChatModel={(model) => setSettings(p => ({ ...p, chatModel: model }))}
+        imageModel={settings.imageModel || "google/imagen-4.0-fast-generate-001"}
+        setImageModel={(model) => setSettings(p => ({ ...p, imageModel: model }))}
+        videoModel={settings.videoModel || "google/veo-3.1-fast-generate-001"}
+        setVideoModel={(model) => setSettings(p => ({ ...p, videoModel: model }))}
+        gatewayModels={gatewayModels}
       />
 
       {/* 2. Middle Central Chat Column */}
@@ -464,6 +499,7 @@ export default function App() {
         videoModel={settings.videoModel || "google/veo-3.1-fast-generate-001"}
         setVideoModel={(model) => setSettings(p => ({ ...p, videoModel: model }))}
         suggestions={suggestions}
+        gatewayModels={gatewayModels}
       />
 
       {/* 3. Optional Right Developer Dashboard (Toggled via AI integration) */}
@@ -494,6 +530,7 @@ export default function App() {
         setImageModel={(model) => setSettings(p => ({ ...p, imageModel: model }))}
         videoModel={settings.videoModel || "google/veo-3.1-fast-generate-001"}
         setVideoModel={(model) => setSettings(p => ({ ...p, videoModel: model }))}
+        gatewayModels={gatewayModels}
       />
 
     </div>
