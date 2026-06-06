@@ -150,6 +150,22 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    const hasTextModel = gatewayModels.text.some((model) => model.id === settings.chatModel);
+    const hasImageModel = gatewayModels.image.some((model) => model.id === settings.imageModel);
+    const hasVideoModel = gatewayModels.video.some((model) => model.id === settings.videoModel);
+
+    if (!hasTextModel || !hasImageModel || !hasVideoModel) {
+      setSettings((prev) => ({
+        ...prev,
+        chatModel: hasTextModel ? prev.chatModel : gatewayModels.text[0]?.id || "google/gemini-2.5-flash",
+        imageModel: hasImageModel ? prev.imageModel : gatewayModels.image[0]?.id || "google/imagen-4.0-fast-generate-001",
+        videoModel: hasVideoModel ? prev.videoModel : gatewayModels.video[0]?.id || "google/veo-3.1-fast-generate-001",
+      }));
+    }
+  }, [gatewayModels, settings.chatModel, settings.imageModel, settings.videoModel]);
+
+
 
   // Synchronize modes
   useEffect(() => {

@@ -111,3 +111,13 @@ gnim-ai/
 - Add rate limiting before public launch to protect credits.
 - Track model name, request time, success/failure, and estimated token usage.
 - Add streaming later with `streamText()` for a smoother chat experience.
+
+
+### Grok Imagine support
+
+This build includes xAI Grok Imagine via Vercel AI Gateway:
+
+- `xai/grok-imagine-image` for image generation
+- `xai/grok-imagine-video` and `xai/grok-imagine-video-1.5-preview` for video generation
+
+If a model fails, check your Vercel AI Gateway access, credits, and project logs.
