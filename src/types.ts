@@ -24,6 +24,8 @@ export interface ChatMessage {
   sources?: GroundingSource[]; // Gotten from Google Search grounding
   files?: AttachmentFile[];
   error?: boolean;
+  mediaType?: "image" | "video"; // Generated media type
+  mediaUrl?: string;             // base64 data URL for generated image/video
 }
 
 export interface ChatSession {
@@ -38,6 +40,8 @@ export interface ActiveModes {
   webSearch: boolean;
   fileAttachments: boolean;
   aiIntegration: boolean;
+  imageGen: boolean;
+  videoGen: boolean;
 }
 
 export interface UserSettings {
@@ -45,4 +49,7 @@ export interface UserSettings {
   apiKey: string;
   baseUrl: string;
   fontSize?: "sm" | "md" | "lg" | "xl";
+  chatModel?: string;
+  imageModel?: string;
+  videoModel?: string;
 }

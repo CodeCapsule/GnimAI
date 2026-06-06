@@ -5,7 +5,7 @@
 
 import React, { useRef, useState } from "react";
 import { 
-  Plus, Settings, Send, Paperclip, X, Brain, Globe, FileText, Check, AlertCircle, Sparkles, HelpCircle, Menu, Terminal, Zap, ArrowUp, Lightbulb, Search, Puzzle, ArrowRight, Mic, MicOff
+  Plus, Settings, Send, Paperclip, X, Brain, Globe, FileText, Check, AlertCircle, Sparkles, HelpCircle, Menu, Terminal, Zap, ArrowUp, Lightbulb, Search, Puzzle, ArrowRight, Mic, MicOff, ImageIcon, Video, Download, Clapperboard
 } from "lucide-react";
 import { ChatSession, ChatMessage, AttachmentFile, ActiveModes } from "../types";
 
@@ -22,6 +22,13 @@ interface SadeAIChatProps {
   apiExpanded: boolean;
   setApiExpanded: (value: boolean) => void;
   fontSize?: "sm" | "md" | "lg" | "xl";
+  chatModel: string;
+  setChatModel: (model: string) => void;
+  imageModel: string;
+  setImageModel: (model: string) => void;
+  videoModel: string;
+  setVideoModel: (model: string) => void;
+  suggestions?: string[];
 }
 
 export default function SadeAIChat({
@@ -37,10 +44,18 @@ export default function SadeAIChat({
   apiExpanded,
   setApiExpanded,
   fontSize = "sm",
+  chatModel,
+  setChatModel,
+  imageModel,
+  setImageModel,
+  videoModel,
+  setVideoModel,
+  suggestions = [],
 }: SadeAIChatProps) {
   const [inputText, setInputText] = useState("");
   const [attachedFiles, setAttachedFiles] = useState<AttachmentFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const [isListening, setIsListening] = useState(false);
@@ -165,6 +180,11 @@ export default function SadeAIChat({
 
   const removeAttachedFile = (name: string) => {
     setAttachedFiles((prev) => prev.filter((f) => f.name !== name));
+  };
+
+  const applySuggestion = (suggestion: string) => {
+    setInputText(suggestion);
+    requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
   // Helper formatting for bytes
@@ -330,9 +350,22 @@ export default function SadeAIChat({
           )}
 
           {/* Brand identity header */}
-          <div className="text-gray-400 text-xs hidden md:flex items-center gap-1.5 bg-[#0a0c0e] px-3 py-1.5 rounded-full border border-white/5 font-mono">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Gnim Core v2.4</span>
+          <div className="text-gray-400 text-xs hidden md:flex items-center gap-2 bg-[#0a0c0e] px-3 py-1.5 rounded-full border border-white/5 font-mono select-none">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+            <span className="text-[10px] uppercase font-semibold text-gray-500 shrink-0">Model:</span>
+            <select
+              value={chatModel}
+              onChange={(e) => setChatModel(e.target.value)}
+              className="bg-transparent border-0 text-[10.5px] text-gray-205 outline-none cursor-pointer p-0 pr-1 hover:text-white font-sans focus:ring-0 focus:outline-none"
+            >
+              <option value="google/gemini-2.5-flash" className="bg-[#0d0f12] text-gray-200">Gemini 2.5 Flash</option>
+              <option value="google/gemini-2.5-pro" className="bg-[#0d0f12] text-gray-200">Gemini 2.5 Pro</option>
+              <option value="google/gemini-2.0-flash" className="bg-[#0d0f12] text-gray-200">Gemini 2.0 Flash</option>
+              <option value="anthropic/claude-3-5-sonnet" className="bg-[#0d0f12] text-gray-200">Claude 3.5 Sonnet</option>
+              <option value="anthropic/claude-3-5-haiku" className="bg-[#0d0f12] text-gray-200">Claude 3.5 Haiku</option>
+              <option value="openai/gpt-4o" className="bg-[#0d0f12] text-gray-200">GPT-4o</option>
+              <option value="openai/gpt-4o-mini" className="bg-[#0d0f12] text-gray-200">GPT-4o Mini</option>
+            </select>
           </div>
         </div>
 
@@ -416,45 +449,49 @@ export default function SadeAIChat({
                 }`} strokeWidth={1.5} />
               </button>
 
-              {/* Card 2: Vercel AI Gateway (replaces Web Search) */}
-              <div
-                className="group relative flex flex-col justify-center items-start text-left p-4 h-[90px] rounded-[15px] border bg-[#111520] border-blue-500/30 cursor-default"
-              >
-                <div className="space-y-1.5 w-full">
-                  <div className="flex items-center gap-1.5">
-                    <Zap className="w-5 h-5 text-blue-400" strokeWidth={1.75} />
-                    <span className="text-[9px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-1.5 py-0.5 rounded-full font-mono tracking-wide">ACTIVE</span>
-                  </div>
-                  <div className="space-y-0.5">
-                    <h3 className="text-[13px] font-semibold text-white tracking-wide font-sans">Vercel AI Gateway</h3>
-                    <p className="text-[10.5px] text-gray-500 font-light leading-none font-sans">All requests routed via Gateway</p>
-                  </div>
-                </div>
-                <ArrowRight className="absolute bottom-3 right-3 w-3.5 h-3.5 text-blue-400" strokeWidth={1.5} />
-              </div>
-
-              {/* Card 3: File Attachments */}
+              {/* Card 2: Image Generation */}
               <button
-                onClick={() => setActiveModes(prev => ({ ...prev, fileAttachments: !prev.fileAttachments }))}
+                onClick={() => setActiveModes(prev => ({ ...prev, imageGen: !prev.imageGen, videoGen: false }))}
                 className={`group relative flex flex-col justify-center items-start text-left p-4 h-[90px] rounded-[15px] border transition-all duration-300 cursor-pointer ${
-                  activeModes.fileAttachments 
-                    ? "bg-[#141822] border-blue-500/30" 
+                  activeModes.imageGen 
+                    ? "bg-[#181520] border-pink-500/30" 
                     : "bg-[#111215] border-[#1d1f23]/90 hover:border-white/10 hover:bg-[#141519]/90"
                 }`}
               >
                 <div className="space-y-1.5 w-full">
-                  <Paperclip className={`w-6 h-6 transition-transform duration-300 group-hover:scale-105 ${
-                    activeModes.fileAttachments ? "text-[#3b82f6]" : "text-[#539bf5]"
+                  <ImageIcon className={`w-6 h-6 transition-transform duration-300 group-hover:scale-105 ${
+                    activeModes.imageGen ? "text-pink-400" : "text-pink-400/70"
                   }`} strokeWidth={1.75} />
-                  
                   <div className="space-y-0.5">
-                    <h3 className="text-[13px] font-semibold text-white tracking-wide font-sans">File Attachments</h3>
-                    <p className="text-[10.5px] text-gray-500 font-light leading-none font-sans">Upload and analyze your files</p>
+                    <h3 className="text-[13px] font-semibold text-white tracking-wide font-sans">Image Generation</h3>
+                    <p className="text-[10.5px] text-gray-500 font-light leading-none font-sans">Create images with Imagen 4</p>
                   </div>
                 </div>
-                
                 <ArrowRight className={`absolute bottom-3 right-3 w-3.5 h-3.5 transition-all duration-300 ${
-                  activeModes.fileAttachments ? "text-[#3b82f6]" : "text-gray-600 group-hover:text-gray-400"
+                  activeModes.imageGen ? "text-pink-400 translate-x-1" : "text-gray-600 group-hover:text-gray-400"
+                }`} strokeWidth={1.5} />
+              </button>
+
+              {/* Card 3: Video Generation */}
+              <button
+                onClick={() => setActiveModes(prev => ({ ...prev, videoGen: !prev.videoGen, imageGen: false }))}
+                className={`group relative flex flex-col justify-center items-start text-left p-4 h-[90px] rounded-[15px] border transition-all duration-300 cursor-pointer ${
+                  activeModes.videoGen 
+                    ? "bg-[#151820] border-cyan-500/30" 
+                    : "bg-[#111215] border-[#1d1f23]/90 hover:border-white/10 hover:bg-[#141519]/90"
+                }`}
+              >
+                <div className="space-y-1.5 w-full">
+                  <Clapperboard className={`w-6 h-6 transition-transform duration-300 group-hover:scale-105 ${
+                    activeModes.videoGen ? "text-cyan-400" : "text-cyan-400/70"
+                  }`} strokeWidth={1.75} />
+                  <div className="space-y-0.5">
+                    <h3 className="text-[13px] font-semibold text-white tracking-wide font-sans">Video Generation</h3>
+                    <p className="text-[10.5px] text-gray-500 font-light leading-none font-sans">Create videos with Veo 3.1</p>
+                  </div>
+                </div>
+                <ArrowRight className={`absolute bottom-3 right-3 w-3.5 h-3.5 transition-all duration-300 ${
+                  activeModes.videoGen ? "text-cyan-400 translate-x-1" : "text-gray-600 group-hover:text-gray-400"
                 }`} strokeWidth={1.5} />
               </button>
 
@@ -490,6 +527,26 @@ export default function SadeAIChat({
               </button>
 
             </div>
+
+            {suggestions.length > 0 && (
+              <div className="rounded-2xl border border-orange-500/10 bg-[#101114]/80 p-3.5 space-y-2">
+                <div className="flex items-center gap-2 text-[11px] font-semibold text-orange-300 uppercase tracking-[0.18em]">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Suggested prompts
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      onClick={() => applySuggestion(suggestion)}
+                      className="text-left px-3 py-2.5 rounded-xl bg-[#15171b] border border-white/5 hover:border-orange-500/30 hover:bg-[#191b20] text-[11.5px] text-gray-300 hover:text-white transition-all cursor-pointer"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-6">
@@ -533,7 +590,7 @@ export default function SadeAIChat({
                       </details>
                     )}
 
-                    {/* Main Speech text content */}
+                    {/* Main content: text OR generated media */}
                     <div className="space-y-1 select-text">
                       {isUser ? (
                         <p className={`${
@@ -542,6 +599,45 @@ export default function SadeAIChat({
                           fontSize === "lg" ? "text-base" :
                           "text-lg"
                         } leading-relaxed text-gray-150`}>{msg.text}</p>
+                      ) : msg.mediaType === "image" && msg.mediaUrl ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-gray-400 font-sans">{msg.text}</p>
+                          <div className="relative group/img rounded-xl overflow-hidden border border-white/10">
+                            <img
+                              src={msg.mediaUrl}
+                              alt="Generated image"
+                              className="w-full max-w-sm rounded-xl object-cover"
+                            />
+                            <a
+                              href={msg.mediaUrl}
+                              download="gnim-ai-image.png"
+                              className="absolute bottom-2 right-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/60 border border-white/10 text-[10px] text-white hover:bg-black/80 transition-all opacity-0 group-hover/img:opacity-100"
+                            >
+                              <Download className="w-3 h-3" />
+                              Download
+                            </a>
+                          </div>
+                        </div>
+                      ) : msg.mediaType === "video" && msg.mediaUrl ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-gray-400 font-sans">{msg.text}</p>
+                          <div className="relative group/vid rounded-xl overflow-hidden border border-white/10">
+                            <video
+                              src={msg.mediaUrl}
+                              controls
+                              className="w-full max-w-sm rounded-xl"
+                              style={{ maxHeight: '320px' }}
+                            />
+                            <a
+                              href={msg.mediaUrl}
+                              download="gnim-ai-video.mp4"
+                              className="absolute bottom-2 right-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/60 border border-white/10 text-[10px] text-white hover:bg-black/80 transition-all opacity-0 group-hover/vid:opacity-100"
+                            >
+                              <Download className="w-3 h-3" />
+                              Download
+                            </a>
+                          </div>
+                        </div>
                       ) : (
                         renderMessageContent(msg.text)
                       )}
@@ -603,13 +699,15 @@ export default function SadeAIChat({
         {/* Loading Spinner for AI turn */}
         {isLoading && (
           <div className="flex flex-col max-w-[85%] mr-auto items-start mt-6 animate-pulse">
-            <div className="p-4.5 rounded-2.5xl backdrop-blur-md bg-[#0d0f12] border border-[#161a20] rounded-tl-sm text-gray-400 flex items-center gap-3">
+                      <div className="p-4.5 rounded-2.5xl backdrop-blur-md bg-[#0d0f12] border border-[#161a20] rounded-tl-sm text-gray-400 flex items-center gap-3">
               <div className="flex items-center gap-1.5 shrink-0 select-none">
                 <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-bounce" style={{ animationDelay: "0ms" }}></span>
                 <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-bounce" style={{ animationDelay: "150ms" }}></span>
                 <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-bounce" style={{ animationDelay: "300ms" }}></span>
               </div>
-              <span className="text-xs font-sans tracking-wide text-gray-500 font-light">Gnim AI is synthesizing response...</span>
+              <span className="text-xs font-sans tracking-wide text-gray-500 font-light">
+                {activeModes.imageGen ? "Gnim AI is generating your image..." : activeModes.videoGen ? "Gnim AI is generating your video (this may take ~1 min)..." : "Gnim AI is synthesizing response..."}
+              </span>
             </div>
           </div>
         )}
@@ -620,6 +718,27 @@ export default function SadeAIChat({
       {/* Input container wrapper */}
       <div className="p-4 md:px-8 md:pb-4 border-t border-[#1b1c1e] bg-[#161719] shrink-0">
         
+        {suggestions.length > 0 && !isLoading && !activeModes.imageGen && !activeModes.videoGen && (
+          <div className="mb-3 flex flex-col gap-2 rounded-2xl border border-white/5 bg-[#101114] p-3">
+            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">
+              <Sparkles className="w-3.5 h-3.5 text-orange-400" />
+              Recommended next steps
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-0.5">
+              {suggestions.map((suggestion) => (
+                <button
+                  key={suggestion}
+                  onClick={() => applySuggestion(suggestion)}
+                  className="shrink-0 max-w-[260px] truncate rounded-full border border-[#242831] bg-[#16181d] px-3 py-2 text-[11px] text-gray-300 hover:border-orange-500/35 hover:text-white transition-all cursor-pointer"
+                  title={suggestion}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Micro-Chips showing currently attached files ready to send */}
         {attachedFiles.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3 bg-[#111214] border border-white/5 p-2 rounded-xl">
@@ -645,6 +764,41 @@ export default function SadeAIChat({
         {/* Input Text Box Bar */}
         <div className="flex flex-col bg-[#1c1d20] border border-[#2d3035] focus-within:border-orange-500/35 rounded-[24px] p-3 md:p-3.5 transition-all shadow-[0_4px_24px_rgba(0,0,0,0.25)]">
           
+          {/* Active Model Indicator Dropdown */}
+          {(activeModes.imageGen || activeModes.videoGen) && (
+            <div className="flex items-center gap-2 px-2 pb-2 select-none animate-fade-in border-b border-white/5 mb-2">
+              <span className={`text-[10px] font-semibold uppercase tracking-wider ${activeModes.imageGen ? "text-pink-400" : "text-cyan-400"}`}>
+                {activeModes.imageGen ? "Image Model:" : "Video Model:"}
+              </span>
+              <select
+                value={activeModes.imageGen ? imageModel : videoModel}
+                onChange={(e) => activeModes.imageGen ? setImageModel(e.target.value) : setVideoModel(e.target.value)}
+                className="bg-[#121519] border border-[#2d3035] text-[10.5px] text-gray-300 rounded-lg px-2.5 py-1 outline-none cursor-pointer focus:border-orange-500/30 font-sans"
+              >
+                {activeModes.imageGen ? (
+                  <>
+                    <option value="google/imagen-4.0-fast-generate-001">Imagen 4.0 Fast (Google)</option>
+                    <option value="google/imagen-4.0-generate-001">Imagen 4.0 Pro (Google)</option>
+                    <option value="google/imagen-3.0-generate-002">Imagen 3.0 Pro (Google)</option>
+                    <option value="openai/gpt-image-2">DALL-E 3 (OpenAI)</option>
+                    <option value="openai/gpt-image-1">DALL-E 2 (OpenAI)</option>
+                    <option value="bfl/flux-2-flex">FLUX.1 Schnell (BFL)</option>
+                    <option value="stability/stable-diffusion-3.5-large">SD 3.5 Large (Stability)</option>
+                    <option value="bytedance/seedream-4.0">Seedream 4.0 (ByteDance)</option>
+                    <option value="bytedance/seedream-4.5">Seedream 4.5 (ByteDance)</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="google/veo-3.1-fast-generate-001">Veo 3.1 Fast (Google)</option>
+                    <option value="google/veo-2.0-generate-001">Veo 2.0 Pro (Google)</option>
+                    <option value="luma/ray-2">Ray 2 (Luma)</option>
+                    <option value="bytedance/seedance-2.0">Seedance 2.0 (ByteDance)</option>
+                  </>
+                )}
+              </select>
+            </div>
+          )}
+
           <input
             type="file"
             multiple
@@ -655,12 +809,13 @@ export default function SadeAIChat({
 
           {/* Core Input box */}
           <textarea
+            ref={textareaRef}
             rows={1}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={isLoading}
-            placeholder="Message Gnim AI..."
+          placeholder={activeModes.imageGen ? "Describe the image you want to generate..." : activeModes.videoGen ? "Describe the video scene you want to generate..." : "Message Gnim AI..."}
             className="w-full bg-transparent border-0 text-sm text-gray-100 outline-none placeholder-gray-500 px-2 py-1.5 resize-none max-h-32 min-h-[44px] overflow-y-auto leading-relaxed focus:ring-0 focus:outline-none"
           />
 
@@ -708,7 +863,33 @@ export default function SadeAIChat({
                 <Lightbulb className="w-3.5 h-3.5" />
               </button>
 
-              {/* Vercel AI Gateway status indicator (replaces Web Search toggle) */}
+              {/* Image Generation Toggle */}
+              <button
+                onClick={() => setActiveModes(prev => ({ ...prev, imageGen: !prev.imageGen, videoGen: false }))}
+                className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all cursor-pointer ${
+                  activeModes.imageGen 
+                    ? "border-pink-500/30 bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 shadow-[0_0_8px_rgba(236,72,153,0.15)]" 
+                    : "border-white/5 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white"
+                }`}
+                title="Toggle Image Generation"
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Video Generation Toggle */}
+              <button
+                onClick={() => setActiveModes(prev => ({ ...prev, videoGen: !prev.videoGen, imageGen: false }))}
+                className={`w-8 h-8 rounded-full border flex items-center justify-center transition-all cursor-pointer ${
+                  activeModes.videoGen 
+                    ? "border-cyan-500/30 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 shadow-[0_0_8px_rgba(6,182,212,0.15)]" 
+                    : "border-white/5 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white"
+                }`}
+                title="Toggle Video Generation"
+              >
+                <Video className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Vercel AI Gateway status indicator */}
               <div
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-400 text-[10px] font-semibold font-mono select-none"
                 title="All requests routed via Vercel AI Gateway"

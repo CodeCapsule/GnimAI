@@ -14,6 +14,13 @@ const LOCAL_STORAGE_SESSION_KEY = "gnim_ai_chat_sessions";
 const LOCAL_STORAGE_MODES_KEY = "gnim_ai_active_modes";
 const LOCAL_STORAGE_SETTINGS_KEY = "gnim_ai_user_settings";
 
+const DEFAULT_RECOMMENDATIONS = [
+  "Help me plan my next task step-by-step",
+  "Recommend improvements for this web app",
+  "Create a clean project checklist",
+  "Explain this code in simple terms",
+];
+
 export default function App() {
   // Mobile drawer collapse state
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -22,12 +29,14 @@ export default function App() {
   const [activeModes, setActiveModes] = useState<ActiveModes>(() => {
     const saved = localStorage.getItem(LOCAL_STORAGE_MODES_KEY);
     return saved
-      ? JSON.parse(saved)
+      ? { thinking: false, webSearch: false, fileAttachments: false, aiIntegration: false, imageGen: false, videoGen: false, ...JSON.parse(saved) }
       : {
           thinking: false,
           webSearch: false,
           fileAttachments: false,
           aiIntegration: false,
+          imageGen: false,
+          videoGen: false,
         };
   });
 
@@ -50,6 +59,15 @@ export default function App() {
         if (!parsed.fontSize) {
           parsed.fontSize = "md";
         }
+        if (!parsed.chatModel) {
+          parsed.chatModel = "google/gemini-2.5-flash";
+        }
+        if (!parsed.imageModel) {
+          parsed.imageModel = "google/imagen-4.0-fast-generate-001";
+        }
+        if (!parsed.videoModel) {
+          parsed.videoModel = "google/veo-3.1-fast-generate-001";
+        }
         // Ensure apiKey exists (users set their own key via Settings)
         if (!parsed.apiKey) {
           parsed.apiKey = "";
@@ -64,6 +82,9 @@ export default function App() {
       apiKey: "",
       baseUrl: "https://api.gnimai.dev/v1",
       fontSize: "md",
+      chatModel: "google/gemini-2.5-flash",
+      imageModel: "google/imagen-4.0-fast-generate-001",
+      videoModel: "google/veo-3.1-fast-generate-001",
     };
   });
 
@@ -101,6 +122,8 @@ export default function App() {
 
   const [activeSessionId, setActiveSessionId] = useState<string>("default-session-id");
   const [isLoading, setIsLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_RECOMMENDATIONS);
+
 
   // Synchronize modes
   useEffect(() => {
@@ -120,6 +143,39 @@ export default function App() {
   // Active Session helper
   const activeSession = sessions.find((s) => s.id === activeSessionId) || sessions[0];
 
+  const loadSuggestions = async (history: ChatMessage[]) => {
+    try {
+      const response = await fetch("/api/suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          history,
+          model: settings.chatModel || "google/gemini-2.5-flash",
+        }),
+      });
+
+      const data = await response.json();
+      if (Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+        setSuggestions(data.suggestions.slice(0, 4));
+      }
+    } catch (err) {
+      console.warn("Could not refresh AI suggestions:", err);
+      setSuggestions(DEFAULT_RECOMMENDATIONS);
+    }
+  };
+
+  useEffect(() => {
+    if (!activeSession || activeSession.messages.length === 0) {
+      setSuggestions(DEFAULT_RECOMMENDATIONS);
+      return;
+    }
+
+    void loadSuggestions(activeSession.messages);
+    // Only refresh when the user switches conversations.
+    // Message-send refreshes are handled directly after each AI response.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId]);
+
   // Create new blank conversation logs
   const handleNewChat = () => {
     const newId = "session-" + Date.now();
@@ -131,6 +187,7 @@ export default function App() {
     };
     setSessions((prev) => [newSession, ...prev]);
     setActiveSessionId(newId);
+    setSuggestions(DEFAULT_RECOMMENDATIONS);
   };
 
   const handleDeleteSession = (idToDel: string) => {
@@ -193,7 +250,77 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      // 2. Fetch from Express backend chat proxy API
+      // -----------------------------------------------------------------------
+      // Image Generation Mode
+      // -----------------------------------------------------------------------
+      if (activeModes.imageGen) {
+        const response = await fetch("/api/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            prompt: text, 
+            model: settings.imageModel || "google/imagen-4.0-fast-generate-001" 
+          }),
+        });
+        const data = await response.json();
+        setIsLoading(false);
+        if (!response.ok || data.error) throw new Error(data.error || "Image generation failed.");
+        const aiResponse: ChatMessage = {
+          id: "ai-" + Date.now(),
+          sender: "ai",
+          text: `🖼️ Generated image for: *"${text}"*`,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          mediaType: "image",
+          mediaUrl: `data:${data.mimeType};base64,${data.base64}`,
+        };
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === activeSession.id
+              ? { ...s, messages: [...s.messages, aiResponse] }
+              : s
+          )
+        );
+        void loadSuggestions([...activeSession.messages, userMessage, aiResponse]);
+        return;
+      }
+
+      // -----------------------------------------------------------------------
+      // Video Generation Mode
+      // -----------------------------------------------------------------------
+      if (activeModes.videoGen) {
+        const response = await fetch("/api/generate-video", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            prompt: text, 
+            model: settings.videoModel || "google/veo-3.1-fast-generate-001" 
+          }),
+        });
+        const data = await response.json();
+        setIsLoading(false);
+        if (!response.ok || data.error) throw new Error(data.error || "Video generation failed.");
+        const aiResponse: ChatMessage = {
+          id: "ai-" + Date.now(),
+          sender: "ai",
+          text: `🎬 Generated video for: *"${text}"*`,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          mediaType: "video",
+          mediaUrl: `data:${data.mimeType};base64,${data.base64}`,
+        };
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === activeSession.id
+              ? { ...s, messages: [...s.messages, aiResponse] }
+              : s
+          )
+        );
+        void loadSuggestions([...activeSession.messages, userMessage, aiResponse]);
+        return;
+      }
+
+      // -----------------------------------------------------------------------
+      // Standard Chat Mode
+      // -----------------------------------------------------------------------
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -205,6 +332,7 @@ export default function App() {
           thinking: activeModes.thinking,
           webSearch: activeModes.webSearch,
           files,
+          model: settings.chatModel || "google/gemini-2.5-flash",
         }),
       });
 
@@ -248,6 +376,8 @@ export default function App() {
           return s;
         })
       );
+
+      void loadSuggestions([...activeSession.messages, userMessage, aiResponse]);
 
     } catch (err: any) {
       setIsLoading(false);
@@ -313,6 +443,13 @@ export default function App() {
         apiExpanded={apiExpanded}
         setApiExpanded={setApiExpanded}
         fontSize={settings.fontSize || "sm"}
+        chatModel={settings.chatModel || "google/gemini-2.5-flash"}
+        setChatModel={(model) => setSettings(p => ({ ...p, chatModel: model }))}
+        imageModel={settings.imageModel || "google/imagen-4.0-fast-generate-001"}
+        setImageModel={(model) => setSettings(p => ({ ...p, imageModel: model }))}
+        videoModel={settings.videoModel || "google/veo-3.1-fast-generate-001"}
+        setVideoModel={(model) => setSettings(p => ({ ...p, videoModel: model }))}
+        suggestions={suggestions}
       />
 
       {/* 3. Optional Right Developer Dashboard (Toggled via AI integration) */}
@@ -337,6 +474,12 @@ export default function App() {
         baseUrl={settings.baseUrl}
         fontSize={settings.fontSize || "sm"}
         setFontSize={(sz) => setSettings(p => ({ ...p, fontSize: sz }))}
+        chatModel={settings.chatModel || "google/gemini-2.5-flash"}
+        setChatModel={(model) => setSettings(p => ({ ...p, chatModel: model }))}
+        imageModel={settings.imageModel || "google/imagen-4.0-fast-generate-001"}
+        setImageModel={(model) => setSettings(p => ({ ...p, imageModel: model }))}
+        videoModel={settings.videoModel || "google/veo-3.1-fast-generate-001"}
+        setVideoModel={(model) => setSettings(p => ({ ...p, videoModel: model }))}
       />
 
     </div>

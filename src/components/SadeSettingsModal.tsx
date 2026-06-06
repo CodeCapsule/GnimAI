@@ -16,6 +16,12 @@ interface SadeSettingsModalProps {
   baseUrl: string;
   fontSize: "sm" | "md" | "lg" | "xl";
   setFontSize: (size: "sm" | "md" | "lg" | "xl") => void;
+  chatModel: string;
+  setChatModel: (model: string) => void;
+  imageModel: string;
+  setImageModel: (model: string) => void;
+  videoModel: string;
+  setVideoModel: (model: string) => void;
 }
 
 export default function SadeSettingsModal({
@@ -27,6 +33,12 @@ export default function SadeSettingsModal({
   baseUrl,
   fontSize,
   setFontSize,
+  chatModel,
+  setChatModel,
+  imageModel,
+  setImageModel,
+  videoModel,
+  setVideoModel,
 }: SadeSettingsModalProps) {
   const [copied, setCopied] = React.useState(false);
 
@@ -215,6 +227,17 @@ export default function SadeSettingsModal({
                 <div className="p-2.5 rounded-lg bg-[#08090b] border border-[#121519] font-mono whitespace-nowrap text-amber-200/90 overflow-x-auto text-[10px]">
                   POST {baseUrl}/chat/completions
                 </div>
+                <div className="p-3 rounded-xl bg-blue-950/10 border border-blue-500/15 text-blue-200/90 leading-relaxed font-light">
+                  This build uses the Vercel AI SDK through Vercel serverless functions for chat, image/video generation, model fallback, and AI-powered follow-up suggestions. In production, it is designed for AI Gateway keyless OIDC authentication.
+                  <a
+                    href="https://ai-sdk.dev/docs/introduction"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-1 text-orange-400 hover:underline font-medium"
+                  >
+                    AI SDK docs →
+                  </a>
+                </div>
               </div>
 
               <div className="border-t border-[#1e232b] pt-3">
@@ -299,6 +322,65 @@ export default function SadeSettingsModal({
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Chat Model Selector */}
+              <div className="space-y-3 pt-2">
+                <label className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold block">
+                  Default Chat Model
+                </label>
+                <select
+                  value={chatModel}
+                  onChange={(e) => setChatModel(e.target.value)}
+                  className="w-full bg-[#121519] border border-[#1e232b] text-xs rounded-xl px-3 py-2 text-gray-300 outline-none focus:border-orange-500/50 cursor-pointer"
+                >
+                  <option value="google/gemini-2.5-flash">Google Gemini 2.5 Flash</option>
+                  <option value="google/gemini-2.5-pro">Google Gemini 2.5 Pro</option>
+                  <option value="google/gemini-2.0-flash">Google Gemini 2.0 Flash</option>
+                  <option value="anthropic/claude-3-5-sonnet">Anthropic Claude 3.5 Sonnet</option>
+                  <option value="anthropic/claude-3-5-haiku">Anthropic Claude 3.5 Haiku</option>
+                  <option value="openai/gpt-4o">OpenAI GPT-4o</option>
+                  <option value="openai/gpt-4o-mini">OpenAI GPT-4o Mini</option>
+                </select>
+              </div>
+
+              {/* Image Model Selector */}
+              <div className="space-y-3 pt-2">
+                <label className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold block">
+                  Default Image Generation Model
+                </label>
+                <select
+                  value={imageModel}
+                  onChange={(e) => setImageModel(e.target.value)}
+                  className="w-full bg-[#121519] border border-[#1e232b] text-xs rounded-xl px-3 py-2 text-gray-300 outline-none focus:border-orange-500/50 cursor-pointer"
+                >
+                  <option value="google/imagen-4.0-fast-generate-001">Google Imagen 4.0 Fast</option>
+                  <option value="google/imagen-4.0-generate-001">Google Imagen 4.0 Pro</option>
+                  <option value="google/imagen-3.0-generate-002">Google Imagen 3.0 Pro</option>
+                  <option value="openai/gpt-image-2">OpenAI DALL-E 3</option>
+                  <option value="openai/gpt-image-1">OpenAI DALL-E 2</option>
+                  <option value="bfl/flux-2-flex">FLUX.1 Schnell</option>
+                  <option value="stability/stable-diffusion-3.5-large">SD 3.5 Large</option>
+                  <option value="bytedance/seedream-4.0">ByteDance Seedream 4.0</option>
+                  <option value="bytedance/seedream-4.5">ByteDance Seedream 4.5</option>
+                </select>
+              </div>
+
+              {/* Video Model Selector */}
+              <div className="space-y-3 pt-2">
+                <label className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold block">
+                  Default Video Generation Model
+                </label>
+                <select
+                  value={videoModel}
+                  onChange={(e) => setVideoModel(e.target.value)}
+                  className="w-full bg-[#121519] border border-[#1e232b] text-xs rounded-xl px-3 py-2 text-gray-300 outline-none focus:border-orange-500/50 cursor-pointer"
+                >
+                  <option value="google/veo-3.1-fast-generate-001">Google Veo 3.1 Fast</option>
+                  <option value="google/veo-2.0-generate-001">Google Veo 2.0 Pro</option>
+                  <option value="luma/ray-2">Luma Ray 2</option>
+                  <option value="bytedance/seedance-2.0">ByteDance Seedance 2.0</option>
+                </select>
               </div>
 
               {/* Interactive Typography Sizing Live Preview Box */}

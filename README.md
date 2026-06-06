@@ -1,112 +1,113 @@
 # Gnim AI
 
-> Your Private AI assistant built for productivity, creativity, and clarity.
+> Your private AI assistant built for productivity, creativity, and clarity.
 
-Gnim AI is a full-stack React + Node.js application that provides a polished chat interface powered by the **Google Gemini API**. It features **Thinking Mode**, **Web Search grounding**, **file attachments**, a **developer API dashboard**, and an **SDK playground** — all in a beautiful, responsive UI.
+Gnim AI is a React + TypeScript chat web app powered by the **Vercel AI SDK** and **Vercel AI Gateway**.
 
----
-
-## ✨ Features
-
-- 🧠 **Thinking Mode** — Forces deep step-by-step reasoning before answering
-- 🌐 **Web Search** — Google Search grounding for real-time, sourced answers
-- 📎 **File Attachments** — Attach images and documents to your messages
-- 🔒 **Private & Self-Hosted** — Your API key, your data
-- 🎨 **Beautiful UI** — Sidebar, settings modal, API dashboard & SDK playground
-- ⚡ **Smart Fallbacks** — Automatically retries with fallback models on quota errors
+This build uses **Option A**: all AI requests are moved into `/api` Vercel Functions so your deployed Vercel project can use keyless AI Gateway authentication. No provider API keys are stored in the React app.
 
 ---
 
-## 🚀 Getting Started
+## What changed for Option A
 
-### Prerequisites
+- AI chat now runs through `/api/chat`.
+- Prompt suggestions now run through `/api/suggestions`.
+- Image generation now runs through `/api/generate-image`.
+- Video generation now runs through `/api/generate-video`.
+- `/api/health` was added so you can confirm the API is running as a Vercel Function.
+- Production build no longer bundles `server.ts`.
+- `server.ts` is kept only as a legacy/local Express fallback.
 
-- [Node.js](https://nodejs.org/) v18+
-- A [Google Gemini API key](https://aistudio.google.com/app/apikey)
+---
 
-### Installation
+## Deployment for keyless AI Gateway
+
+1. Push this folder to GitHub.
+2. Import the repo into Vercel as a project.
+3. Deploy normally.
+4. Do **not** add `AI_GATEWAY_API_KEY` for production.
+5. After deployment, open:
+
+```txt
+https://your-project.vercel.app/api/health
+```
+
+You should see:
+
+```json
+{
+  "runtime": "vercel-function",
+  "auth": "vercel-oidc"
+}
+```
+
+If AI Gateway usage still appears under **No Project**, the request is not coming from the deployed Vercel Function.
+
+---
+
+## Local development
+
+Install dependencies:
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/gnim-ai.git
-cd gnim-ai
-
-# 2. Install dependencies
 npm install
+```
 
-# 3. Set up your environment
-cp .env.example .env
-# Open .env and set your GEMINI_API_KEY
+For frontend-only local work:
 
-# 4. Start the development server
+```bash
 npm run dev
 ```
 
-Open your browser at **http://localhost:3000**
+For the closest production-like local setup with Vercel Functions:
 
----
-
-## ⚙️ Environment Variables
-
-Copy `.env.example` to `.env` and fill in:
-
-| Variable        | Description                          |
-|-----------------|--------------------------------------|
-| `GEMINI_API_KEY`| Your Google Gemini API key (required)|
-| `APP_URL`       | Deployment URL (optional)            |
-
----
-
-## 🛠️ Tech Stack
-
-| Layer     | Technology                        |
-|-----------|-----------------------------------|
-| Frontend  | React 19, TypeScript, Tailwind CSS |
-| Backend   | Node.js, Express, TypeScript       |
-| AI        | Google Gemini API (`@google/genai`)|
-| Build     | Vite + esbuild                     |
-| Animation | Motion (Framer Motion)             |
-| Icons     | Lucide React                       |
-
----
-
-## 📁 Project Structure
-
+```bash
+npx vercel link
+npx vercel dev
 ```
+
+Local development may still need a temporary `AI_GATEWAY_API_KEY` because keyless OIDC is meant for deployed Vercel Functions.
+
+Do not commit `.env.local`.
+
+---
+
+## Project structure
+
+```txt
 gnim-ai/
+├── api/
+│   ├── _gateway.ts
+│   ├── chat.ts
+│   ├── suggestions.ts
+│   ├── generate-image.ts
+│   ├── generate-video.ts
+│   └── health.ts
 ├── src/
-│   ├── components/
-│   │   ├── SadeAIChat.tsx       # Main chat interface
-│   │   ├── SadeAISidebar.tsx    # Sidebar navigation
-│   │   ├── SadeAPIDashboard.tsx # API key dashboard
-│   │   ├── SadeSDKPlayground.tsx# SDK playground
-│   │   └── SadeSettingsModal.tsx# Settings modal
-│   ├── App.tsx                  # Root app component
-│   ├── main.tsx                 # Entry point
-│   ├── index.css                # Global styles
-│   └── types.ts                 # TypeScript types
-├── server.ts                    # Express + Vite dev server
-├── index.html                   # HTML entry point
-├── vite.config.ts               # Vite configuration
-├── tsconfig.json                # TypeScript configuration
-├── .env.example                 # Environment variable template
+├── server.ts              # legacy/local Express fallback only
+├── vercel.json
 └── package.json
 ```
 
 ---
 
-## 📦 Scripts
+## Scripts
 
-| Command        | Description                        |
-|----------------|------------------------------------|
-| `npm run dev`  | Start development server           |
-| `npm run build`| Build for production               |
-| `npm start`    | Serve the production build         |
-| `npm run lint` | Type-check the project             |
-| `npm run clean`| Remove build artifacts             |
+| Command | Description |
+|---|---|
+| `npm run dev` | Run Vite frontend locally |
+| `npm run dev:vercel` | Run Vercel Functions locally |
+| `npm run dev:express` | Run old Express fallback |
+| `npm run build` | Build frontend for Vercel |
+| `npm start` | Preview built frontend |
+| `npm run lint` | Type-check project |
 
 ---
 
-## 📄 License
+## Recommendations
 
-Apache 2.0 — see [LICENSE](LICENSE) for details.
+- Keep all model calls inside `/api` only.
+- Do not call AI Gateway directly from React.
+- Add rate limiting before public launch to protect credits.
+- Track model name, request time, success/failure, and estimated token usage.
+- Add streaming later with `streamText()` for a smoother chat experience.

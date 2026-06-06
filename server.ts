@@ -6,7 +6,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { generateText, gateway } from "ai";
+import { generateText, gateway, generateImage, experimental_generateVideo as generateVideo } from "ai";
 import dotenv from "dotenv";
 
 // Load .env.local first (Vercel OIDC token), then fall back to .env
@@ -85,6 +85,106 @@ function buildMessages(history: any[], currentMessage: string, files: any[]) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: model fallback chain for all AI SDK text tasks
+// ---------------------------------------------------------------------------
+function getModelFallbackChain(model?: string) {
+  const chain: string[] = [];
+  if (model) chain.push(model);
+
+  const defaults = [
+    "google/gemini-2.5-flash",
+    "google/gemini-2.0-flash",
+    "google/gemini-2.0-flash-lite",
+  ];
+
+  for (const fallback of defaults) {
+    if (!chain.includes(fallback)) chain.push(fallback);
+  }
+
+  return chain;
+}
+
+async function runGatewayTextGeneration({
+  model,
+  system,
+  messages,
+  prompt,
+  maxOutputTokens = 8192,
+}: {
+  model?: string;
+  system: string;
+  messages?: any[];
+  prompt?: string;
+  maxOutputTokens?: number;
+}) {
+  let lastError: any = null;
+
+  for (const modelToTry of getModelFallbackChain(model)) {
+    try {
+      console.log(`[Gateway] Trying model: ${modelToTry}`);
+      const result = await generateText({
+        model: gateway(modelToTry) as any,
+        system,
+        messages,
+        prompt,
+        maxOutputTokens,
+      } as any);
+
+      console.log(`[Gateway] Response served via: ${modelToTry}`);
+      return {
+        text: result.text ?? "",
+        usedModel: modelToTry,
+      };
+    } catch (err: any) {
+      console.warn(`[Gateway] Model ${modelToTry} failed:`, err.message || err);
+      lastError = err;
+
+      // Stop retrying on auth errors because every model will fail the same way.
+      if (
+        err.message?.includes("401") ||
+        err.message?.includes("403") ||
+        err.message?.toLowerCase().includes("unauthorized")
+      ) {
+        break;
+      }
+    }
+  }
+
+  throw lastError || new Error("All models in the fallback chain failed.");
+}
+
+function parseSuggestions(rawText: string) {
+  const fallback = [
+    "Summarize the key points from our chat",
+    "Recommend the next best step",
+    "Turn this into a clear action plan",
+  ];
+
+  try {
+    const cleaned = rawText
+      .trim()
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/```$/i, "")
+      .trim();
+
+    const parsed = JSON.parse(cleaned);
+    const suggestions = Array.isArray(parsed) ? parsed : parsed.suggestions;
+
+    if (!Array.isArray(suggestions)) return fallback;
+
+    const normalized = suggestions
+      .map((item: any) => String(item || "").trim())
+      .filter((item: string) => item.length >= 8 && item.length <= 120)
+      .slice(0, 4);
+
+    return normalized.length > 0 ? normalized : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Server API Routes
 // ---------------------------------------------------------------------------
 app.get("/api/health", (req, res) => {
@@ -98,7 +198,7 @@ app.get("/api/health", (req, res) => {
 // Vercel AI Gateway Chat Proxy (using Vercel AI SDK)
 app.post("/api/chat", async (req, res): Promise<any> => {
   try {
-    const { message, history = [], thinking, files = [] } = req.body;
+    const { message, history = [], thinking, files = [], model } = req.body;
 
     // Build system instruction
     let systemPrompt =
@@ -119,52 +219,12 @@ app.post("/api/chat", async (req, res): Promise<any> => {
     // Build conversation messages
     const messages = buildMessages(history, message, files);
 
-    // Fallback chain — Vercel AI Gateway automatically handles auth via OIDC on Vercel
-    // Locally, it uses AI_GATEWAY_API_KEY from .env.local or .env
-    const modelChain = [
-      "google/gemini-2.5-flash",
-      "google/gemini-2.0-flash",
-      "google/gemini-2.0-flash-lite",
-    ];
-
-    let resultText = "";
-    let lastError: any = null;
-    let usedModel = "";
-
-    for (const model of modelChain) {
-      try {
-        console.log(`[Gateway] Trying model: ${model}`);
-
-        const result = await generateText({
-          model: gateway(model),
-          system: systemPrompt,
-          messages,
-          maxTokens: 8192,
-        });
-
-        resultText = result.text ?? "";
-        usedModel = model;
-        break;
-      } catch (err: any) {
-        console.warn(`[Gateway] Model ${model} failed:`, err.message || err);
-        lastError = err;
-
-        // Stop retrying on auth errors
-        if (
-          err.message?.includes("401") ||
-          err.message?.includes("403") ||
-          err.message?.toLowerCase().includes("unauthorized")
-        ) {
-          break;
-        }
-      }
-    }
-
-    if (!usedModel) {
-      throw lastError || new Error("All models in the fallback chain failed.");
-    }
-
-    console.log(`[Gateway] Response served via: ${usedModel}`);
+    const { text: resultText, usedModel } = await runGatewayTextGeneration({
+      model,
+      system: systemPrompt,
+      messages,
+      maxOutputTokens: 8192,
+    });
 
     return res.json({
       text: resultText,
@@ -227,6 +287,111 @@ ${error.message || "An unexpected error occurred. Please try again."}
 
 *If this keeps happening, restart the server with \`npm run dev\`.*`,
         sources: [],
+      });
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// AI SDK Suggestions Endpoint — recommends useful follow-up prompts
+// ---------------------------------------------------------------------------
+app.post("/api/suggestions", async (req, res): Promise<any> => {
+  try {
+    const { history = [], model } = req.body;
+    const recentHistory = history
+      .slice(-8)
+      .map((chat: any) => `${chat.sender === "user" ? "User" : "Assistant"}: ${chat.text || ""}`)
+      .join("\n\n");
+
+    const prompt = recentHistory.trim()
+      ? `Conversation so far:\n${recentHistory}\n\nReturn exactly 4 helpful next-prompt suggestions for the user.`
+      : "Return exactly 4 helpful starter prompt suggestions for a private productivity AI assistant.";
+
+    const { text } = await runGatewayTextGeneration({
+      model,
+      system:
+        "You create concise, practical follow-up prompt suggestions for a chat UI. " +
+        "Return ONLY valid JSON in this shape: {\"suggestions\":[\"...\",\"...\",\"...\",\"...\"]}. " +
+        "Suggestions should be specific, useful, and under 90 characters each. Do not include markdown.",
+      prompt,
+      maxOutputTokens: 500,
+    });
+
+    return res.json({ suggestions: parseSuggestions(text) });
+  } catch (error: any) {
+    console.error("[Suggestions] Error:", error);
+    return res.status(200).json({
+      suggestions: parseSuggestions(""),
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Image Generation Endpoint — Google Imagen 4 Fast via Vercel AI Gateway
+// ---------------------------------------------------------------------------
+app.post("/api/generate-image", async (req, res): Promise<any> => {
+  try {
+    const { prompt, size = "1024x1024", model } = req.body;
+
+    if (!prompt?.trim()) {
+      return res.status(400).json({ error: "A prompt is required to generate an image." });
+    }
+
+    const modelToUse = model || "google/imagen-4.0-fast-generate-001";
+    console.log(`[Image Gen] Prompt: "${prompt}" | Size: ${size} | Model: ${modelToUse}`);
+
+    const { image } = await generateImage({
+      model: gateway.image(modelToUse),
+      prompt,
+      size,
+    });
+
+    console.log(`[Image Gen] ✅ Image generated successfully`);
+
+    return res.json({
+      base64: image.base64,
+      mimeType: image.mediaType || "image/png",
+    });
+  } catch (error: any) {
+    console.error("[Image Gen] Error:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        error: error.message || "Failed to generate image. Please try again.",
+      });
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Video Generation Endpoint — Google Veo 3.1 Fast via Vercel AI Gateway
+// ---------------------------------------------------------------------------
+app.post("/api/generate-video", async (req, res): Promise<any> => {
+  try {
+    const { prompt, model } = req.body;
+
+    if (!prompt?.trim()) {
+      return res.status(400).json({ error: "A prompt is required to generate a video." });
+    }
+
+    const modelToUse = model || "google/veo-3.1-fast-generate-001";
+    console.log(`[Video Gen] Prompt: "${prompt}" | Model: ${modelToUse}`);
+
+    const { video } = await generateVideo({
+      model: gateway.video(modelToUse),
+      prompt,
+    });
+
+    console.log(`[Video Gen] ✅ Video generated successfully`);
+
+    return res.json({
+      base64: video.base64,
+      mimeType: video.mediaType || "video/mp4",
+    });
+  } catch (error: any) {
+    console.error("[Video Gen] Error:", error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        error: error.message || "Failed to generate video. Please try again.",
       });
     }
   }
