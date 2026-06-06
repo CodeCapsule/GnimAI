@@ -6,7 +6,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { generateText } from "ai";
+import { generateText, gateway } from "ai";
 import dotenv from "dotenv";
 
 // Load .env.local first (Vercel OIDC token), then fall back to .env
@@ -15,6 +15,10 @@ dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// `gateway` from 'ai' is the pre-built Vercel AI Gateway provider.
+// On Vercel deployments: uses OIDC token automatically (no API key needed).
+// Locally: uses AI_GATEWAY_API_KEY from .env.local or .env.
 
 // Increase request size to support file attachments base64 uploads
 app.use(express.json({ limit: "50mb" }));
@@ -132,7 +136,7 @@ app.post("/api/chat", async (req, res): Promise<any> => {
         console.log(`[Gateway] Trying model: ${model}`);
 
         const result = await generateText({
-          model: model as any,
+          model: gateway(model),
           system: systemPrompt,
           messages,
           maxTokens: 8192,
